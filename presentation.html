@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kubernetes Ingress Architecture — AWS ALB Microservices</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg-main: #0B0F19;
+      --bg-card: #111827;
+      --bg-card-hover: #1F2937;
+      --border-color: #374151;
+      --text-primary: #F9FAFB;
+      --text-secondary: #9CA3AF;
+      --text-muted: #6B7280;
+      --accent-blue: #3B82F6;
+      --accent-cyan: #06B6D4;
+      --accent-orange: #F59E0B;
+      --accent-green: #10B981;
+      --accent-red: #EF4444;
+      --accent-purple: #8B5CF6;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-main);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Top Navigation Bar */
+    header {
+      background: rgba(17, 24, 39, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-color);
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: -0.02em;
+    }
+
+    .badge {
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid var(--accent-blue);
+      color: var(--accent-cyan);
+      font-size: 0.7rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .nav-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    button {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      padding: 0.45rem 0.9rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.2s;
+    }
+
+    button:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--accent-blue);
+    }
+
+    button.primary {
+      background: var(--accent-blue);
+      border-color: var(--accent-blue);
+      color: #FFFFFF;
+    }
+
+    button.primary:hover {
+      background: #2563EB;
+    }
+
+    /* Slide Stage */
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.5rem;
+      max-width: 1300px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .slide {
+      display: none;
+      width: 100%;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 2.5rem;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+      animation: fadeIn 0.3s ease-in-out;
+    }
+
+    .slide.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .slide-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid rgba(55, 65, 81, 0.5);
+      padding-bottom: 0.75rem;
+    }
+
+    .slide-number {
+      font-family: 'Fira Code', monospace;
+      font-size: 0.85rem;
+      color: var(--accent-cyan);
+      font-weight: 600;
+    }
+
+    .slide-topic {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    h1.slide-title {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, #FFFFFF 0%, #D1D5DB 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    h2.slide-subtitle {
+      font-size: 1.15rem;
+      color: var(--accent-cyan);
+      font-weight: 500;
+      margin-bottom: 1.5rem;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      align-items: start;
+    }
+
+    .bullet-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .bullet-list li {
+      position: relative;
+      padding-left: 1.75rem;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: #E5E7EB;
+    }
+
+    .bullet-list li::before {
+      content: "▹";
+      position: absolute;
+      left: 0;
+      color: var(--accent-cyan);
+      font-size: 1.2rem;
+      line-height: 1;
+      top: 0.15rem;
+    }
+
+    .bullet-list strong {
+      color: #FFFFFF;
+      font-weight: 600;
+    }
+
+    .diagram-box {
+      background: #0D1117;
+      border: 1px solid #30363D;
+      border-radius: 8px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow-x: auto;
+    }
+
+    .diagram-box img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 6px;
+    }
+
+    /* Code Block */
+    pre, code {
+      font-family: 'Fira Code', monospace;
+    }
+
+    pre {
+      background: #0D1117;
+      border: 1px solid #30363D;
+      border-radius: 8px;
+      padding: 1rem;
+      font-size: 0.85rem;
+      color: #58A6FF;
+      overflow-x: auto;
+      margin-top: 1rem;
+    }
+
+    /* Comparison Table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      font-size: 0.85rem;
+    }
+
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    th {
+      background: rgba(31, 41, 55, 0.7);
+      color: var(--accent-cyan);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+    }
+
+    tr:hover td {
+      background: rgba(31, 41, 55, 0.3);
+    }
+
+    /* Speaker Notes Drawer */
+    .speaker-notes-panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #111827;
+      border-top: 2px solid var(--accent-blue);
+      padding: 1.25rem 2rem;
+      transform: translateY(100%);
+      transition: transform 0.3s ease-in-out;
+      z-index: 90;
+      box-shadow: 0 -10px 25px rgba(0,0,0,0.5);
+      max-height: 40vh;
+      overflow-y: auto;
+    }
+
+    .speaker-notes-panel.open {
+      transform: translateY(0);
+    }
+
+    .notes-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .notes-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      color: var(--accent-cyan);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .notes-content {
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: #D1D5DB;
+      font-style: italic;
+    }
+
+    /* Footer Controls */
+    footer {
+      background: var(--bg-card);
+      border-top: 1px solid var(--border-color);
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer-hints {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .kbd {
+      background: #1F2937;
+      border: 1px solid #4B5563;
+      border-radius: 4px;
+      padding: 0.15rem 0.4rem;
+      font-family: 'Fira Code', monospace;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    /* Modal for Interview Q&A */
+    .modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.8);
+      backdrop-filter: blur(8px);
+      z-index: 200;
+      padding: 2rem;
+      overflow-y: auto;
+    }
+
+    .modal.open {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+    }
+
+    .modal-content {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      max-width: 900px;
+      width: 100%;
+      padding: 2rem;
+      position: relative;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 1.25rem;
+      right: 1.25rem;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 1.5rem;
+      cursor: pointer;
+    }
+
+    .qa-item {
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .qa-q {
+      font-weight: 700;
+      color: var(--accent-cyan);
+      margin-bottom: 0.4rem;
+      font-size: 1rem;
+    }
+
+    .qa-a {
+      font-size: 0.9rem;
+      line-height: 1.6;
+      color: #D1D5DB;
+    }
+
+    .tag-danger {
+      color: var(--accent-red);
+      font-weight: 600;
+    }
+    .tag-success {
+      color: var(--accent-green);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header>
+    <div class="brand">
+      <span>☁️ Kubernetes & AWS Ingress Architecture</span>
+      <span class="badge">DevOps Presentation</span>
+    </div>
+    <div class="nav-controls">
+      <button onclick="toggleInterviewModal()">📋 20 Interview Q&As</button>
+      <button onclick="toggleSpeakerNotes()">🎙️ Speaker Notes (<span class="kbd">S</span>)</button>
+      <button onclick="prevSlide()">◀ Prev (<span class="kbd">←</span>)</button>
+      <span id="slide-indicator" style="font-family:'Fira Code'; font-size:0.85rem; padding:0 0.5rem; color:var(--accent-cyan);">1 / 14</span>
+      <button class="primary" onclick="nextSlide()">Next (<span class="kbd">→</span>) ▶</button>
+    </div>
+  </header>
+
+  <!-- Slide Stage -->
+  <main>
+
+    <!-- SLIDE 1: TITLE -->
+    <div class="slide active" id="slide-1">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 01 / 14</span>
+        <span class="slide-topic">Architecture Overview</span>
+      </div>
+      <h1 class="slide-title">Kubernetes Ingress Architecture</h1>
+      <h2 class="slide-subtitle">Exposing Multiple Microservices Through AWS Application Load Balancer</h2>
+      
+      <div class="grid-2">
+        <div>
+          <ul class="bullet-list">
+            <li><strong>Centralized Edge Ingestion:</strong> Unifying external traffic for distributed microservices through a single managed AWS Application Load Balancer (ALB).</li>
+            <li><strong>Host-Based Layer 7 Switching:</strong> Dynamic routing for <code>vote.somesh.xyz</code> and <code>result.somesh.xyz</code> at the cloud boundary.</li>
+            <li><strong>Direct Pod IP Ingress:</strong> Native AWS VPC CNI routing via <code>target-type: ip</code>, bypassing NodePort and kube-proxy DNAT latency.</li>
+            <li><strong>Zero-Trust Internal Network:</strong> Application workloads, cache, and state stores isolated entirely on private Kubernetes <code>ClusterIP</code> networks.</li>
+          </ul>
+          <pre><code># Configured Hosts (miniproject-ingress.yaml)
+vote.somesh.xyz   --> voting-service:80 --> voting-app Pods (x2)
+result.somesh.xyz --> result-service:80 --> result-app Pod (x1)</code></pre>
+        </div>
+        <div class="diagram-box">
+          <img src="./k8s_ingress_alb_hero.jpg" alt="Kubernetes Ingress with AWS ALB Architecture" />
+        </div>
+      </div>
+      <div class="speaker-notes-raw" style="display:none;">
+        "Good morning, everyone. Today I'm presenting a production-style Kubernetes Ingress architecture based on a real-world microservice deployment on AWS. When designing containerized systems, one of the most critical platform decisions is how external user traffic enters the cluster safely and reaches target pods. In this project, I engineered a centralized ingress pattern using the AWS Load Balancer Controller and Kubernetes Ingress, exposing multiple microservices—our voting frontend and real-time results portal—through a single managed Application Load Balancer using host-based routing. Over the next 15 minutes, I'll walk you through the end-to-end traffic flow, why this architecture avoids anti-patterns like multiple public load balancers, the AWS-specific annotations configured in the manifests, and how requests journey from DNS down to pod network namespaces and state stores."
+      </div>
+    </div>
+
+    <!-- SLIDE 2: PROJECT OVERVIEW -->
+    <div class="slide" id="slide-2">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 02 / 14</span>
+        <span class="slide-topic">System Decomposition</span>
+      </div>
+      <h1 class="slide-title">Example Voting Application</h1>
+      <h2 class="slide-subtitle">Microservice Decomposition & Asynchronous Architecture</h2>
+      
+      <div class="grid-2">
+        <div>
+          <ul class="bullet-list">
+            <li><strong>Voting App (Python / Flask):</strong> Ingests user votes (Cats vs Dogs). Stateless frontend with 2 replicas behind <code>voting-service:80</code>.</li>
+            <li><strong>Redis Queue (In-Memory Buffer):</strong> Absorbs write bursts. Decouples fast frontend ingestion from database disk I/O.</li>
+            <li><strong>Worker App (.NET Core Daemon):</strong> Background consumer pulling votes from Redis and committing them to PostgreSQL.</li>
+            <li><strong>PostgreSQL 9.4 (Relational State):</strong> Persists vote tables and totals behind internal service <code>db:5432</code>.</li>
+            <li><strong>Result App (Node.js / Angular):</strong> Real-time visualization dashboard querying PostgreSQL.</li>
+          </ul>
+        </div>
+        <div class="diagram-box">
+          <div class="mermaid">
+          flowchart TD
+            V[Voting App Frontend] -->|LPUSH| R[Redis In-Memory Queue]
+            R -->|BRPOP| W[Worker Daemon .NET]
+            W -->|INSERT / UPDATE| DB[(PostgreSQL 9.4)]
+            DB -->|SELECT Live Tallies| Res[Result App Dashboard]
+          </div>
+        </div>
+      </div>
+      <div class="speaker-notes-raw" style="display:none;">
+        "To understand our networking requirements, let's look at the application topology. This is a classic distributed microservice architecture featuring an asynchronous processing pipeline. Notice the separation of concerns: our Python voting frontend does not touch the database directly; it offloads votes to Redis in memory. A background .NET worker consumes events from Redis and writes them to PostgreSQL. Finally, the Node.js result app queries Postgres to display real-time analytics. From an infrastructure perspective, notice that out of five components, only TWO require public ingress: the Voting App and the Result App. The Worker, Redis, and PostgreSQL must remain strictly private. This is where Kubernetes Ingress shines."
+      </div>
+    </div>
+
+    <!-- SLIDE 3: THE PROBLEM -->
+    <div class="slide" id="slide-3">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 03 / 14</span>
+        <span class="slide-topic">Cloud Economics & Ingress Patterns</span>
+      </div>
+      <h1 class="slide-title">The Problem: Exposing Multiple Applications</h1>
+      <h2 class="slide-subtitle">Multiple LoadBalancers vs. Centralized Kubernetes Ingress</h2>
+      
+      <table style="margin-bottom:1.5rem;">
+        <thead>
+          <tr>
+            <th>Architecture Dimension</th>
+            <th>Anti-Pattern: Multiple LoadBalancer Services</th>
+            <th>DevOps Best Practice: Kubernetes Ingress + AWS ALB</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Cloud Resource Footprint</strong></td>
+            <td>1 AWS ELB/NLB provisioned per application service</td>
+            <td><strong>Single AWS ALB</strong> serves entire cluster ingress</td>
+          </tr>
+          <tr>
+            <td><strong>Cost Model</strong></td>
+            <td>Base hourly cost multiplied by $N$ services + data fees</td>
+            <td>Consolidated base cost; pay only for combined LCUs</td>
+          </tr>
+          <tr>
+            <td><strong>TLS / SSL Certificates</strong></td>
+            <td>Fragmented ACM certs across multiple ELBs</td>
+            <td>Centralized ACM wildcard cert on one listener</td>
+          </tr>
+          <tr>
+            <td><strong>Routing Capabilities</strong></td>
+            <td>Layer 4 (IP / Port) only; blind to HTTP headers</td>
+            <td><strong>Layer 7 aware:</strong> Host headers, paths, HTTP methods</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="diagram-box">
+        <div class="mermaid">
+        flowchart LR
+          subgraph AntiPattern[" Multiple LoadBalancers (Costly & Fragmented) "]
+            C1[Clients] --> LB1[AWS ALB #1] --> S1[Voting App]
+            C1 --> LB2[AWS ALB #2] --> S2[Result App]
+          end
+          subgraph BestPractice[" Centralized Ingress (Single Entry Point) "]
+            C2[Clients] --> ALB[Single AWS ALB]
+            ALB -->|vote.*| S3[Voting App]
+            ALB -->|result.*| S4[Result App]
+          end
+        </div>
+      </div>
+      <div class="speaker-notes-raw" style="display:none;">
+        "When junior engineers deploy multiple web services on Kubernetes, their immediate instinct is often to change every Service type to LoadBalancer. From a DevOps and cloud economics perspective, that is an anti-pattern. If you have 10 microservices, creating 10 LoadBalancer services provisions 10 distinct AWS ELBs or NLBs. That means 10 times the base AWS hourly cost, fragmented DNS records, multiple public endpoints to secure, and zero Layer-7 routing intelligence. Instead, our architecture uses Kubernetes Ingress. A single AWS Application Load Balancer acts as our cluster front door. We route traffic based on HTTP Host headers—sending vote.somesh.xyz to our voting pods and result.somesh.xyz to our result pods—while maintaining internal services as private ClusterIP resources."
+      </div>
+    </div>
+
+    <!-- SLIDE 4: WHAT IS INGRESS -->
+    <div class="slide" id="slide-4">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 04 / 14</span>
+        <span class="slide-topic">Kubernetes Primitives</span>
+      </div>
+      <h1 class="slide-title">What Is Kubernetes Ingress?</h1>
+      <h2 class="slide-subtitle">Decoupling Declarative Routing Rules from Cloud Infrastructure</h2>
+      
+      <div class="grid-2">
+        <div>
+          <ul class="bullet-list">
+            <li><strong>Ingress Resource:</strong> A declarative manifest (<code>networking.k8s.io/v1</code>) specifying routing rules (hosts, paths, and backend services). <em>It does not route traffic by itself!</em></li>
+            <li><strong>Ingress Controller:</strong> An active in-cluster controller (AWS Load Balancer Controller) watching the API server and provisioning real AWS ALB resources.</li>
+            <li><strong>Kubernetes Service:</strong> Stable Layer-4 virtual IP and discovery abstraction selecting pods via labels.</li>
+            <li><strong>Workload Pod:</strong> Ephemeral application container running inside its own network namespace.</li>
+          </ul>
+        </div>
+        <div class="diagram-box">
+          <div class="mermaid">
+          flowchart TD
+            A[Developer writes Ingress YAML] -->|kubectl apply| B[kube-apiserver etcd]
+            B -.->|Watch Event| C[AWS Load Balancer Controller]
+            C -->|AWS ELBv2 API| D[AWS Application Load Balancer]
+            D -->|Direct Forward| E[Container Pods]
+          </div>
+        </div>
+      </div>
+      <div class="speaker-notes-raw" style="display:none;">
+        "It's crucial to understand the distinction between an Ingress and an Ingress Controller—this is a classic interview question. An Ingress resource is just an API manifest, a set of instructions stored in etcd. On its own, it does absolutely nothing. You need an Ingress Controller running in your cluster. Here, we use the AWS Load Balancer Controller. The controller listens to the Kubernetes API server, detects our voting-ingress manifest, calls the AWS ELBv2 APIs, provisions an internet-facing Application Load Balancer, creates listener rules, and synchronizes target groups with our pod IPs. The Ingress defines the rules; the controller provisions and programs the infrastructure."
+      </div>
+    </div>
+
+    <!-- SLIDE 5: ARCHITECTURE DEEP DIVE -->
+    <div class="slide" id="slide-5">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 05 / 14</span>
+        <span class="slide-topic">System Topology</span>
+      </div>
+      <h1 class="slide-title">Our Kubernetes Ingress Architecture</h1>
+      <h2 class="slide-subtitle">External Ingress Perimeter & Internal Cluster Mesh</h2>
+      
+      <div class="diagram-box">
+        <div class="mermaid">
+        flowchart TB
+          subgraph Edge[" 1. Public AWS Edge "]
+            Internet(( Internet )) --> ALB[AWS Application Load Balancer]
+          end
+          subgraph IngressRules[" 2. Layer-7 Host Rules "]
+            ALB -->|Host: vote.somesh.xyz| TG1[Target Group: Voting]
+            ALB -->|Host: result.somesh.xyz| TG2[Target Group: Result]
+          end
+          subgraph Cluster[" 3. Private EKS Cluster "]
+            TG1 ===>|target-type: ip| P1[Voting Pod 1: 10.0.1.15]
+            TG1 ===>|target-type: ip| P2[Voting Pod 2: 10.0.2.42]
+            TG2 ===>|target-type: ip| P3[Result Pod: 10.0.2.88]
+            
+            P1 --> SvcRedis[Service: redis :6379]
+            P2 --> SvcRedis
+            SvcRedis --> RedisPod[(Redis Pod)]
+            Worker[Worker Pod] --> SvcRedis
+            Worker --> SvcDB[Service: db :5432]
+            SvcDB --> PG[(PostgreSQL Pod)]
+            P3 --> SvcDB
+          end
+        </div>
+      </div>
+      <div class="speaker-notes-raw" style="display:none;">
+        "Slide 5 illustrates our complete architecture diagram. Notice the clean segregation between external ingress and internal communications. External users access the cluster exclusively via two hostnames hitting the ALB. Once traffic passes the ALB, notice how internal communications operate: the Voting App connects to redis:6379. It doesn't need hardcoded IP addresses because Kubernetes CoreDNS resolves the Service name redis to its ClusterIP. The Worker pod continuously pulls jobs from Redis and writes records to db:5432. Finally, the Result App queries db to read those counts. PostgreSQL and Redis have zero exposure to the internet, satisfying core defense-in-depth principles."
+      </div>
+    </div>
+
+    <!-- SLIDE 6: REQUEST FLOW -->
+    <div class="slide" id="slide-6">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 06 / 14</span>
+        <span class="slide-topic">Packet Journey</span>
+      </div>
+      <h1 class="slide-title">What Happens When a User Opens vote.somesh.xyz?</h1>
+      <h2 class="slide-subtitle">Step-by-Step Traversal from Client Browser to Container Namespace</h2>
+      
+      <div class="grid-2">
+        <div>
+          <ul class="bullet-list">
+            <li><strong>1. DNS Resolution:</strong> Client queries Route 53 for <code>vote.somesh.xyz</code>; resolves to ALB Anycast IPs.</li>
+            <li><strong>2. Edge Ingestion:</strong> Inbound HTTP connection accepted on ALB Port 80.</li>
+            <li><strong>3. Host Header Evaluation:</strong> ALB inspects HTTP Layer-7 headers, matching <code>Host: vote.somesh.xyz</code> and path <code>/</code>.</li>
+            <li><strong>4. Target Group Selection:</strong> Request assigned to voting target group operating in <code>ip</code> mode.</li>
+            <li><strong>5. Direct Pod Dispatch:</strong> Request forwarded directly to Pod IP <code>10.0.1.15:80</code> (zero NodePort hops).</li>
+            <li><strong>6. Application Response:</strong> Flask renders HTML response, returned through ALB back to browser.</li>
+          </ul>
+        </div>
+        <div class="diagram-box">
+          <div class="mermaid">
+          sequenceDiagram
+            actor Client
+            participant ALB as AWS ALB
+            participant Pod as Voting Pod (10.0.1.15)
+            participant Redis as Redis (:6379)
+            Client->>ALB: HTTP GET vote.somesh.xyz
+            ALB->>Pod: Forward to Pod IP
+            Pod-->>ALB: HTTP 200 OK
+            ALB-->>Client: Render UI
+            Client->>ALB: HTTP POST (Vote: "Cats")
+            ALB->>Pod: Forward POST
+            Pod->>Redis: LPUSH votes
+            Pod-->>ALB: HTTP 200 (Vote Recorded)
+            ALB-->>Client: Acknowledge
+          </div>
+        </div>
+      </div>
+      <div class="speaker-notes-raw" style="display:none;">
+        "Let's trace a packet step-by-step when a user casts a vote. First, the browser resolves vote.somesh.xyz through DNS, which points to the ALB. Second, the ALB terminates the client connection and inspects the HTTP headers. It sees the Host: vote.somesh.xyz header. Third, the ALB matches this against the listener rules generated by our Ingress manifest. Fourth, because our manifest specifies target-type: ip, the ALB does NOT forward to a cluster node's random NodePort. It forwards the request directly to the private VPC IP of one of our voting app pods! Finally, the voting app processes the POST, enqueues the vote onto Redis, and returns the confirmation response. The client experiences minimal latency because the ALB talks directly to the pod."
+      </div>
+    </div>
+
+    <!-- SLIDE 7: HOST-BASED ROUTING -->
+    <div class="slide" id="slide-7">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 07 / 14</span>
+        <span class="slide-topic">Layer-7 Switching</span>
+      </div>
+      <h1 class="slide-title">Host-Based Routing with Kubernetes Ingress</h1>
+      <h2 class="slide-subtitle">Multi-Tenancy at the Edge via HTTP Host Headers</h2>
+      
+      <div class="grid-2">
+        <div>
+          <ul class="bullet-list">
+            <li><strong>Shared Infrastructure:</strong> A single entry point handles distinct microservices with independent domain identities.</li>
+            <li><strong>Header-Driven Multiplexing:</strong> The ALB inspects the HTTP/1.1 or HTTP/2 <code>Host</code> header to make routing decisions.</li>
+            <li><strong>Default Security Action:</strong> Any request lacking a valid recognized Host header is rejected immediately at the edge (HTTP 404 / 403), protecting pods from unauthorized scanners.</li>
+            <li><strong>Independent Service Lifecycles:</strong> Teams can deploy, upgrade, and autoscale the voting app without impacting the result analytics app.</li>
+          </ul>
+        </div>
+        <div class="diagram-box">
+          <div class="mermaid">
+          flowchart LR
+            Req[Incoming HTTP Request] --> Check{Host Header?}
+            Check -->|vote.somesh.xyz| TG1[voting-service Target Group]
+            Check -->|result.somesh.xyz| TG2[result-service Target Group]
+            Check -->|Other / Unknown| Drop[404 Not Found Edge Drop]
+          </div>
+        </div>
+      </div>
+      <div class="speaker-notes-raw" style="display:none;">
+        "Host-based routing is the mechanism that unlocks maximum efficiency in cloud networking. Instead of provisioning separate IP addresses or load balancers for every microservice, the ALB inspects the HTTP Host header in the request. If the header is vote.somesh.xyz, the ALB directs the request to the voting target group. If the header is result.somesh.xyz, it routes to the result dashboard target group. If someone scans the load balancer IP directly or passes an unauthorized domain, the ALB drops the connection. This delivers clean domain branding, high resource efficiency, and centralized traffic management."
+      </div>
+    </div>
+
+    <!-- SLIDE 8: AWS ALB CONFIGURATION -->
+    <div class="slide" id="slide-8">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 08 / 14</span>
+        <span class="slide-topic">AWS Load Balancer Controller</span>
+      </div>
+      <h1 class="slide-title">AWS ALB + Kubernetes Ingress</h1>
+      <h2 class="slide-subtitle">Deconstructing the YAML Manifest Annotations</h2>
+      
+      <pre><code># Source: miniproject-ingress.yaml
+metadata:
+  name: voting-ingress
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listening-port: '[{"HTTP": 80}]'
+spec:
+  ingressClassName: alb</code></pre>
+
+      <table style="margin-top:1rem;">
+        <thead>
+          <tr>
+            <th>Annotation / Field</th>
+            <th>Configured Value</th>
+            <th>Technical Meaning & DevOps Impact</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>ingressClassName</code></td>
+            <td><code>alb</code></td>
+            <td>Associates the Ingress with the AWS Load Balancer Controller for reconciliation.</td>
+          </tr>
+          <tr>
+            <td><code>scheme</code></td>
+            <td><code>internet-facing</code></td>
+            <td>Deploys ALB into public subnets with public IPs and DNS for public internet access.</td>
+          </tr>
+          <tr>
+            <td><code>target-type</code></td>
+            <td><code>ip</code></td>
+            <td><strong>Direct Pod Routing:</strong> ALB routes to pod IPs via AWS VPC CNI. Eliminates NodePort & kube-proxy overhead.</td>
+          </tr>
+          <tr>
+            <td><code>listening-port</code></td>
+            <td><code>[{"HTTP": 80}]</code></td>
+            <td>Configures HTTP listener on port 80 (Note: Controller canonical key is <code>listen-ports</code>).</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="speaker-notes-raw" style="display:none;">
+        "Slide 8 highlights the exact annotations in our Ingress YAML. First, ingressClassName: alb associates this manifest with the AWS Load Balancer Controller. Second, scheme: internet-facing ensures the ALB gets deployed in public subnets with public DNS names so internet users can vote. Third, and most importantly, target-type: ip. In traditional Kubernetes setups, load balancers route to worker nodes on high-range NodePorts, and kube-proxy routes the packet across nodes using iptables. That introduces extra network hops and hides client IPs. With target-type: ip and AWS VPC CNI, the ALB registers the actual Pod private IPs directly in the ALB Target Group. The load balancer talks directly to the container, cutting latency and eliminating kube-proxy bottlenecks."
+      </div>
+    </div>
+
+    <!-- SLIDE 9: INGRESS VS SERVICE VS POD -->
+    <div class="slide" id="slide-9">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 09 / 14</span>
+        <span class="slide-topic">Kubernetes Networking Model</span>
+      </div>
+      <h1 class="slide-title">Ingress vs Service vs Pod</h1>
+      <h2 class="slide-subtitle">Why Ingress Does Not Replace Kubernetes Services</h2>
+      
+      <div class="grid-2">
+        <div>
+          <ul class="bullet-list">
+            <li><strong>Pod:</strong> Ephemeral container executing code. IP addresses are non-deterministic and change on restart.</li>
+            <li><strong>Service:</strong> Durable internal abstraction providing permanent virtual IP, DNS identity, and endpoints tracking.</li>
+            <li><strong>Ingress:</strong> Layer-7 policy engine bridging external traffic to internal Services.</li>
+            <li><strong>Why 2 Replicas for Voting App:</strong> Delivers instant high availability. If Pod 1 restarts, the Service and Target Group route all traffic to Pod 2 with zero downtime.</li>
+          </ul>
+        </div>
+        <div class="diagram-box">
+          <div class="mermaid">
+          flowchart TD
+            Ingress[Ingress / AWS ALB] -->|Routing Policy| Svc[Service: voting-service]
+            Svc -.->|Selector| Pod1[Voting Pod 1 - 10.0.1.15]
+            Svc -.->|Selector| Pod2[Voting Pod 2 - 10.0.2.42]
+          </div>
+        </div>
+      </div>
+      <div class="speaker-notes-raw" style="display:none;">
+        "A frequent interview trap is confusing Ingresses with Services. An Ingress does not replace a Service—they work together. Pods are ephemeral; when a pod restarts, it gets a brand-new IP address. A Kubernetes Service provides a stable, permanent IP and DNS identity for those pods using label selectors. Even with target-type: ip where the ALB routes to pod IPs, the Ingress still references the Service in its YAML. The AWS Load Balancer Controller watches the Kubernetes Endpoints or EndpointSlices managed by the Service to continuously discover and register healthy pod IPs into the AWS Target Group. And notice that our Voting App deployment runs 2 replicas: if Pod 1 terminates, the Service and Target Group immediately reroute all traffic to Pod 2 without user interruption."
+      </div>
+    </div>
+
+    <!-- SLIDE 10: INTERNAL APPLICATION FLOW -->
+    <div class="slide" id="slide-10">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 10 / 14</span>
+        <span class="slide-topic">Data Architecture</span>
+      </div>
+      <h1 class="slide-title">Inside the Cluster: Vote Processing Pipeline</h1>
+      <h2 class="slide-subtitle">Asynchronous Ingestion, Buffering, and Relational State</h2>
+      
+      <div class="diagram-box" style="margin-bottom:1.5rem;">
+        <div class="mermaid">
+        flowchart LR
+          Vote[1. User Casts Vote] --> Flask[Voting App Flask]
+          Flask -->|2. LPUSH 'votes'| Redis[(Redis In-Memory Queue)]
+          Worker[.NET Worker Daemon] -->|3. BRPOP 'votes'| Redis
+          Worker -->|4. SQL INSERT / UPDATE| PG[(PostgreSQL 9.4)]
+          PG -->|5. SQL SELECT| Res[Result App Node.js]
+          Res --> Viewer[6. User Views Live Result]
+        </div>
+      </div>
+
+      <ul class="bullet-list">
+        <li><strong>Frontend Protection:</strong> Python frontend pushes JSON payload into Redis in sub-milliseconds without blocking on disk.</li>
+        <li><strong>Spike Absorption:</strong> Redis buffers millions of votes, acting as a shock absorber during traffic spikes.</li>
+        <li><strong>Controlled Persistence:</strong> Worker process drains Redis at a safe rate, preventing database connection exhaustion.</li>
+      </ul>
+      <div class="speaker-notes-raw" style="display:none;">
+        "Slide 10 details what happens inside the cluster after a vote is received. We deliberately decoupled the voting frontend from the database using Redis and a background worker. Imagine an election or television event where 100,000 votes hit per second. If the voting frontend tried to write directly to PostgreSQL, connection pools would saturate and the database would crash. By using Redis as an in-memory queue, the frontend pushes the vote in microseconds and returns a 200 OK. Our worker pod pops votes from Redis at a controlled rate and writes them to PostgreSQL. Then our Result App simply queries PostgreSQL to display the live score. This architecture isolates write spikes and guarantees resilience."
+      </div>
+    </div>
+
+    <!-- SLIDE 11: COMPLETE END-TO-END FLOW -->
+    <div class="slide" id="slide-11">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 11 / 14</span>
+        <span class="slide-topic">Master Architecture</span>
+      </div>
+      <h1 class="slide-title">Complete End-to-End Traffic & Data Flow</h1>
+      <h2 class="slide-subtitle">Edge Ingress + Workload Distribution + Stateful Processing</h2>
+      
+      <div class="diagram-box">
+        <div class="mermaid">
+        flowchart TB
+          subgraph PublicZone[" External Edge "]
+            U1[Voter: vote.somesh.xyz]
+            U2[Viewer: result.somesh.xyz]
+            ALB[AWS Application Load Balancer]
+            U1 --> ALB
+            U2 --> ALB
+          end
+
+          subgraph IngressTier[" Ingress Layer 7 Routing "]
+            ALB -->|Host: vote.somesh.xyz| V_Pods[Voting Pods x2]
+            ALB -->|Host: result.somesh.xyz| R_Pod[Result Pod x1]
+          end
+
+          subgraph InternalMesh[" Private Cluster Network "]
+            V_Pods -->|LPUSH| Redis[(Redis Queue)]
+            Worker[Worker .NET] -->|BRPOP| Redis
+            Worker -->|INSERT| PG[(PostgreSQL DB)]
+            R_Pod -->|SELECT| PG
+          end
+        </div>
+      </div>
+      <div class="speaker-notes-raw" style="display:none;">
+        "Slide 11 brings our entire system together into one comprehensive diagram. You can clearly trace both paths: On the left, voter traffic hits vote.somesh.xyz, enters the ALB, routes to our voting pods, and streams into the Redis queue. In the center, our worker continuously processes those votes and updates PostgreSQL. On the right, public users viewing the results connect to result.somesh.xyz. Their traffic hits the very same ALB, but the host rule directs them to the Result App, which reads aggregated tallies from PostgreSQL. This unified design gives us centralized security at the cloud boundary, optimal routing via direct pod IPs, and strict network isolation for internal data pipelines."
+      </div>
+    </div>
+
+    <!-- SLIDE 12: CURRENT IMPLEMENTATION -->
+    <div class="slide" id="slide-12">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 12 / 14</span>
+        <span class="slide-topic">Code Audit & Truth-in-Engineering</span>
+      </div>
+      <h1 class="slide-title">Current Implementation vs YAML Schema Audit</h1>
+      <h2 class="slide-subtitle">Strict Verification Against Repository Manifests & Identified Gaps</h2>
+      
+      <table>
+        <thead>
+          <tr>
+            <th>Manifest</th>
+            <th>Configured State</th>
+            <th>Audit Findings & Schema Violations</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>miniproject-ingress.yaml</code></td>
+            <td>Ingress with <code>ingressClassName: alb</code></td>
+            <td><span class="tag-danger">Schema Bug:</span> Missing <code>http:</code> wrapper under <code>rules[].host</code>.<br><span class="tag-danger">Schema Bug:</span> Lowercase <code>prefix</code> instead of <code>Prefix</code>.<br><span class="tag-danger">Annotation Bug:</span> <code>listening-port</code> vs canonical <code>listen-ports</code>.</td>
+          </tr>
+          <tr>
+            <td><code>6-postgres-deploy.yaml</code></td>
+            <td>Deployment (1 replica), image <code>postgres:9.4</code></td>
+            <td><span class="tag-danger">High Risk:</span> Ephemeral storage (no PVC). Data lost on pod restart.<br><span class="tag-danger">Security:</span> Plaintext credentials in env; <code>POSTGRES_HOST_AUTH_METHOD: trust</code>.</td>
+          </tr>
+          <tr>
+            <td>All Deployments</td>
+            <td>Voting (2), Redis (1), Worker (1), Result (1)</td>
+            <td><span class="tag-danger">Missing:</span> Zero CPU/Memory requests/limits.<br><span class="tag-danger">Missing:</span> Zero liveness or readiness probes configured.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="speaker-notes-raw" style="display:none;">
+        "As a senior DevOps engineer, doing a rigorous manifest audit is mandatory before deploying any code to a cluster. Based strictly on the provided YAML files, I identified several critical issues that must be addressed: First, in miniproject-ingress.yaml, there is a schema violation: the paths key is placed directly under host without the required http wrapper object, and pathType is lowercase prefix instead of title-case Prefix. Kubernetes API validation will reject this manifest immediately upon kubectl apply. Furthermore, the annotation uses listening-port instead of the canonical listen-ports. Second, looking at PostgreSQL: it is configured as a stateless Deployment without a PersistentVolumeClaim. If that pod gets evicted or node dies, all voting data vanishes. In addition, credentials are hardcoded in plaintext and Postgres 9.4 is legacy. Third, none of the deployments define resource requests or health probes. Acknowledging these gaps separates a real DevOps professional from someone blindly copying manifests."
+      </div>
+    </div>
+
+    <!-- SLIDE 13: PRODUCTION IMPROVEMENTS -->
+    <div class="slide" id="slide-13">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 13 / 14</span>
+        <span class="slide-topic">Production Roadmap</span>
+      </div>
+      <h1 class="slide-title">How I Would Productionize This Architecture</h1>
+      <h2 class="slide-subtitle">Recommended Enterprise Improvements (Not Currently Implemented)</h2>
+      
+      <div class="grid-2">
+        <div>
+          <ul class="bullet-list">
+            <li><strong>Edge Security & HTTPS:</strong> Attach AWS Certificate Manager (ACM) TLS 1.3 cert on port 443 with automated HTTP-to-HTTPS redirect. Add AWS WAFv2.</li>
+            <li><strong>Managed Database Services:</strong> Replace in-cluster Postgres with <strong>AWS Aurora PostgreSQL Multi-AZ</strong>. Replace Redis with <strong>AWS ElastiCache Redis</strong>.</li>
+            <li><strong>Workload Resilience:</strong> Add <code>readinessProbe</code>, <code>livenessProbe</code>, CPU/Mem resource limits, and <code>HorizontalPodAutoscaler</code> (HPA).</li>
+            <li><strong>Secret Management:</strong> Store database credentials in AWS Secrets Manager; sync via External Secrets Operator (ESO).</li>
+            <li><strong>Zero-Trust Mesh:</strong> Enforce Kubernetes <code>NetworkPolicies</code> to restrict Postgres access strictly to the Worker pod.</li>
+          </ul>
+        </div>
+        <div class="diagram-box">
+          <div class="mermaid">
+          flowchart TD
+            subgraph Production[" Enterprise Production Architecture "]
+              ALB[AWS ALB + ACM TLS 443 + AWS WAF] --> Ingress[Validated K8s Ingress]
+              Ingress --> HPA[HPA Scaled Pods + Probes + Limits]
+              HPA --> ESO[External Secrets Operator + KMS]
+              HPA --> RDS[(AWS Aurora PostgreSQL Multi-AZ)]
+              HPA --> ElastiCache[(AWS ElastiCache Redis)]
+            end
+          </div>
+        </div>
+      </div>
+      <div class="speaker-notes-raw" style="display:none;">
+        "If tasked with taking this project to production for a high-traffic enterprise, here is my implementation roadmap: First, edge security: we must configure HTTPS using AWS Certificate Manager, terminate TLS 1.3 on the ALB, enforce automatic HTTP-to-HTTPS redirects, and attach AWS WAF to mitigate DDoS attacks and vote tampering. Second, data resilience: we should never run a critical database as a standalone pod with ephemeral storage. I would externalize PostgreSQL to an AWS RDS Multi-AZ instance and Redis to AWS ElastiCache. Third, workload resiliency: we need readiness and liveness probes so the ALB never routes traffic to unready pods, resource requests and limits to prevent node starvation, and Horizontal Pod Autoscalers to scale the voting frontend during traffic spikes. Finally, we would introduce Network Policies to restrict pod-to-pod communication, ensuring only the worker can reach the database."
+      </div>
+    </div>
+
+    <!-- SLIDE 14: TAKEAWAY -->
+    <div class="slide" id="slide-14">
+      <div class="slide-meta">
+        <span class="slide-number">SLIDE 14 / 14</span>
+        <span class="slide-topic">Architectural Synthesis</span>
+      </div>
+      <h1 class="slide-title">DevOps Engineer Takeaway</h1>
+      <h2 class="slide-subtitle">Core Architectural Principles & Interview Summary</h2>
+      
+      <div class="grid-2">
+        <div>
+          <ul class="bullet-list">
+            <li><strong>Ingress:</strong> Centralizes Layer-7 routing policies, hostnames, and TLS termination.</li>
+            <li><strong>AWS ALB:</strong> Provides an elastic, resilient cloud entry point with zero node-level bottlenecks.</li>
+            <li><strong>Services:</strong> Deliver durable internal abstraction and dynamic endpoint discovery.</li>
+            <li><strong>Pods:</strong> Scale stateless application compute independently across failure domains.</li>
+            <li><strong>Async Pipelines:</strong> Buffer write-heavy workflows, safeguarding backend database integrity.</li>
+          </ul>
+        </div>
+        <div class="diagram-box" style="padding:2rem;">
+          <blockquote style="font-size:1.1rem; line-height:1.6; color:var(--accent-cyan); text-align:center; font-style:italic;">
+            "The foundational design principle of production Kubernetes networking is to keep application services internal, private, and decoupled, while using a controlled, declarative Ingress layer to expose only necessary HTTP entry points to the outside world."
+          </blockquote>
+        </div>
+      </div>
+      <div class="speaker-notes-raw" style="display:none;">
+        "To summarize: this project showcases the power of cloud-native Kubernetes architecture when paired with cloud provider primitives. Ingress gives us intelligent Layer-7 host routing; AWS ALB provides an elastic, managed edge; Kubernetes Services provide stable internal discovery; and our asynchronous Redis-Worker pipeline protects backend data integrity. By understanding not just the YAML syntax, but the underlying traffic mechanics, networking trade-offs, and production gaps, we can design scalable, secure, and cost-effective cloud architectures. Thank you, and I am now excited to take any questions."
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Speaker Notes Drawer -->
+  <div class="speaker-notes-panel" id="speakerNotesPanel">
+    <div class="notes-header">
+      <span class="notes-title">🎙️ Senior DevOps Presenter Notes</span>
+      <button onclick="toggleSpeakerNotes()">Close</button>
+    </div>
+    <div class="notes-content" id="speakerNotesText">
+      Select a slide to view speaker notes.
+    </div>
+  </div>
+
+  <!-- Footer Navigation -->
+  <footer>
+    <div class="footer-hints">
+      Use <span class="kbd">←</span> and <span class="kbd">→</span> keys to navigate &bull; Press <span class="kbd">S</span> for Speaker Notes
+    </div>
+    <div class="nav-controls">
+      <button onclick="prevSlide()">◀ Prev</button>
+      <button class="primary" onclick="nextSlide()">Next ▶</button>
+    </div>
+  </footer>
+
+  <!-- Modal: 20 Interview Q&As -->
+  <div class="modal" id="interviewModal">
+    <div class="modal-content">
+      <button class="modal-close" onclick="toggleInterviewModal()">&times;</button>
+      <h2 style="color:var(--accent-cyan); margin-bottom:1rem;">🎯 20 Technical DevOps Interview Q&As</h2>
+      
+      <div class="qa-item">
+        <div class="qa-q">1. What is Kubernetes Ingress?</div>
+        <div class="qa-a">An API resource (<code>networking.k8s.io/v1</code>) defining Layer-7 routing policies (hostnames, paths, TLS termination) for external traffic entering a cluster.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">2. Why use Ingress instead of NodePort or LoadBalancer Services?</div>
+        <div class="qa-a">NodePort exposes high-range non-standard ports (30000-32767) on node IPs without L7 routing. LoadBalancer services spin up a costly individual cloud load balancer per service. Ingress unifies multiple services behind a single AWS ALB with host-based routing.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">3. What is an Ingress Controller vs Ingress Resource?</div>
+        <div class="qa-a">The Ingress resource is just declarative configuration metadata in etcd. The Ingress Controller (AWS Load Balancer Controller) is the daemon watching the API server and provisioning the actual cloud hardware (AWS ALB).</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">4. What is the role of the AWS ALB in this architecture?</div>
+        <div class="qa-a">Acts as the public Layer-7 gateway, accepts port 80 traffic, parses HTTP Host headers, terminates TCP, and routes packets directly to pod IPs via AWS VPC CNI.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">5. Why are ClusterIP Services used behind the Ingress?</div>
+        <div class="qa-a">ClusterIP ensures pods are only accessible internally within the cluster network, maintaining strict network isolation while the Ingress/ALB acts as the sole public gateway.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">6. What is host-based routing?</div>
+        <div class="qa-a">Multiplexing multiple domains across a single IP/port by evaluating the HTTP <code>Host</code> header (e.g. <code>vote.somesh.xyz</code> vs <code>result.somesh.xyz</code>).</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">7. What happens when vote.somesh.xyz is accessed?</div>
+        <div class="qa-a">DNS resolves to ALB -> ALB accepts HTTP request -> matches Host header <code>vote.somesh.xyz</code> -> selects voting target group -> routes directly to pod IP <code>10.0.1.15:80</code>.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">8. What does target-type: ip mean?</div>
+        <div class="qa-a">ALB targets Pod IPs directly via AWS VPC CNI, eliminating NodePort translation and kube-proxy iptables overhead.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">9. What does scheme: internet-facing mean?</div>
+        <div class="qa-a">Deploys the ALB into public subnets with public IP addresses, accessible to internet clients.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">10. What happens if one Voting Pod fails?</div>
+        <div class="qa-a">Target group health checks fail; ALB routes 100% of traffic to the second healthy replica. The Deployment controller concurrently spins up a replacement pod.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">11. Why does the Voting App have 2 replicas?</div>
+        <div class="qa-a">For high availability, zero-downtime rolling updates, and distributing concurrent vote ingestion load.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">12. Why is Redis used in the architecture?</div>
+        <div class="qa-a">Buffers write bursts in-memory to prevent frontend requests from blocking on database disk writes, isolating spikes.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">13. What is the role of the Worker?</div>
+        <div class="qa-a">Asynchronous daemon popping raw votes from Redis and committing them to PostgreSQL at a steady rate.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">14. Why does PostgreSQL have a ClusterIP Service?</div>
+        <div class="qa-a">Provides a stable DNS name (<code>db</code>) and virtual IP for the Worker and Result App, abstracting ephemeral pod IP changes.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">15. Did you find schema issues in the provided Ingress YAML?</div>
+        <div class="qa-a">Yes: missing <code>http:</code> wrapper under <code>rules</code>, lowercase <code>prefix</code> instead of <code>Prefix</code>, and annotation <code>listening-port</code> instead of <code>listen-ports</code>.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">16. How would you enable HTTPS?</div>
+        <div class="qa-a">Create an ACM wildcard cert, add annotation <code>alb.ingress.kubernetes.io/certificate-arn</code>, listen on 443, and set <code>ssl-redirect: '443'</code>.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">17. How would you productionize PostgreSQL?</div>
+        <div class="qa-a">Migrate to AWS Aurora PostgreSQL Multi-AZ with automated backups, or deploy as a StatefulSet with EBS PVCs.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">18. How would you secure database credentials?</div>
+        <div class="qa-a">Store in AWS Secrets Manager, encrypt with KMS, and inject into pods using the External Secrets Operator.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">19. What health probes and limits are needed?</div>
+        <div class="qa-a">Readiness/liveness HTTP probes to prevent routing to unready pods; CPU/Memory requests & limits to guarantee QoS.</div>
+      </div>
+
+      <div class="qa-item">
+        <div class="qa-q">20. How would you isolate cluster traffic?</div>
+        <div class="qa-a">Apply Kubernetes NetworkPolicies so only the Worker can communicate with PostgreSQL, enforcing zero trust.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      securityLevel: 'loose',
+      themeVariables: {
+        darkMode: true,
+        background: '#0D1117',
+        primaryColor: '#3B82F6',
+        primaryTextColor: '#F9FAFB',
+        primaryBorderColor: '#3B82F6',
+        lineColor: '#06B6D4',
+        secondaryColor: '#1F2937',
+        tertiaryColor: '#111827'
+      }
+    });
+
+    let currentSlide = 1;
+    const totalSlides = 14;
+
+    function showSlide(index) {
+      if (index < 1) index = 1;
+      if (index > totalSlides) index = totalSlides;
+      currentSlide = index;
+
+      document.querySelectorAll('.slide').forEach((slide, idx) => {
+        slide.classList.toggle('active', idx + 1 === currentSlide);
+      });
+
+      document.getElementById('slide-indicator').innerText = `${currentSlide} / ${totalSlides}`;
+      updateSpeakerNotes();
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides) {
+        showSlide(currentSlide + 1);
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 1) {
+        showSlide(currentSlide - 1);
+      }
+    }
+
+    function toggleSpeakerNotes() {
+      const panel = document.getElementById('speakerNotesPanel');
+      panel.classList.toggle('open');
+      updateSpeakerNotes();
+    }
+
+    function updateSpeakerNotes() {
+      const activeSlide = document.getElementById(`slide-${currentSlide}`);
+      const rawNotes = activeSlide.querySelector('.speaker-notes-raw');
+      const textContainer = document.getElementById('speakerNotesText');
+      if (rawNotes) {
+        textContainer.innerText = rawNotes.innerText.trim();
+      } else {
+        textContainer.innerText = "No speaker notes for this slide.";
+      }
+    }
+
+    function toggleInterviewModal() {
+      const modal = document.getElementById('interviewModal');
+      modal.classList.toggle('open');
+    }
+
+    // Keyboard Navigation
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        nextSlide();
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        prevSlide();
+      } else if (e.key === 's' || e.key === 'S') {
+        toggleSpeakerNotes();
+      } else if (e.key === 'Escape') {
+        document.getElementById('interviewModal').classList.remove('open');
+        document.getElementById('speakerNotesPanel').classList.remove('open');
+      }
+    });
+
+    // Initialize speaker notes on load
+    updateSpeakerNotes();
+  </script>
+</body>
+</html>
